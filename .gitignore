@@ -1,0 +1,19 @@
+# Build outputs
+target/
+
+# IDE
+.idea/
+*.iml
+*.class
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Misc
+*.jar
+*.war
+*.ear

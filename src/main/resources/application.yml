@@ -1,0 +1,50 @@
+# RateFlip 后端配置文件
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: rateflip-backend
+
+  # Redis 配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+# 外部 API 配置
+exchange:
+  api:
+    # 主API配置
+    base-url: https://open.er-api.com
+    endpoint: /v6/latest
+    timeout: 10000
+    
+    # 备用API配置（frankfurter.app - 开源免费API）
+    fallback:
+      base-url: https://api.frankfurter.app
+      endpoint: /latest
+
+# 熔断器配置
+circuitbreaker:
+  failure-threshold: 3      # 连续失败次数阈值，达到后触发熔断（默认3次）
+  open-timeout-millis: 30000  # 熔断持续时间30秒，之后进入半开状态
+  success-threshold: 2      # 半开状态下，连续成功次数阈值，达到后关闭熔断（默认2次）
+
+# 缓存配置
+cache:
+  ttl:
+    seconds: 3600  # 缓存有效期 1 小时
+
+# 日志配置
+logging:
+  level:
+    com.rateflip: DEBUG
+    org.springframework.data.redis: DEBUG
