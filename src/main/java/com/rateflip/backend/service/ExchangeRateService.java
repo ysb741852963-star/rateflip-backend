@@ -64,9 +64,8 @@ public class ExchangeRateService {
         // 记录统计
         String date = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
         redisTemplate.opsForValue().increment("rateflip:stats:" + date + ":requests");
-        @SuppressWarnings("unchecked")
-        BoundSetOperations<String, Object> setOps = (BoundSetOperations<String, Object>) redisTemplate.boundSetOps("rateflip:stats:" + date + ":currencies");
-        setOps.add(baseCurrency);
+        // 每个货币的请求次数（Hash结构：field=货币代码, value=请求次数）
+        redisTemplate.opsForHash().increment("rateflip:stats:" + date + ":currency_counts", baseCurrency, 1);
 
         String usdCacheKey = CACHE_KEY_PREFIX + "USD";
         String requestedCurrency = baseCurrency.toUpperCase();
@@ -302,7 +301,7 @@ public class ExchangeRateService {
     /**
      * 获取每日统计数据
      * @param date 日期，格式为 yyyyMMdd，不传则默认当天
-     * @return 包含请求数和活跃货币对的统计对象
+     * @return 包含请求数和各个货币请求次数的统计对象
      */
     public DailyStats getDailyStats(String date) {
         String targetDate = (date != null && !date.isEmpty())
@@ -310,10 +309,10 @@ public class ExchangeRateService {
                 : LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
 
         String requestsKey = "rateflip:stats:" + targetDate + ":requests";
-        String currenciesKey = "rateflip:stats:" + targetDate + ":currencies";
+        String currencyCountsKey = "rateflip:stats:" + targetDate + ":currency_counts";
 
         Long requestCount = 0L;
-        Set<String> activeCurrencies = null;
+        Map<String, Long> currencyCounts = new java.util.HashMap<>();
 
         try {
             Object count = redisTemplate.opsForValue().get(requestsKey);
@@ -329,23 +328,25 @@ public class ExchangeRateService {
         }
 
         try {
-            @SuppressWarnings("unchecked")
-            Set<Object> currencies = (Set<Object>) redisTemplate.opsForSet().members(currenciesKey);
-            if (currencies != null) {
-                activeCurrencies = new java.util.HashSet<>();
-                for (Object c : currencies) {
-                    if (c != null) {
-                        activeCurrencies.add(c.toString());
-                    }
+            Map<Object, Object> entries = redisTemplate.opsForHash().entries(currencyCountsKey);
+            for (Map.Entry<Object, Object> entry : entries.entrySet()) {
+                String currency = entry.getKey().toString();
+                long count = 0;
+                Object value = entry.getValue();
+                if (value instanceof Long) {
+                    count = (Long) value;
+                } else if (value instanceof Integer) {
+                    count = ((Integer) value).longValue();
+                } else if (value != null) {
+                    count = Long.parseLong(value.toString());
                 }
-            } else {
-                activeCurrencies = Set.of();
+                currencyCounts.put(currency, count);
             }
         } catch (Exception e) {
-            logger.warn("读取活跃货币统计失败: {}", e.getMessage());
+            logger.warn("读取货币统计失败: {}", e.getMessage());
         }
 
-        return new DailyStats(targetDate, requestCount, activeCurrencies);
+        return new DailyStats(targetDate, requestCount, currencyCounts);
     }
 
     /**
@@ -354,6 +355,6 @@ public class ExchangeRateService {
     public record DailyStats(
             String date,
             long requestCount,
-            Set<String> activeCurrencies
+            Map<String, Long> currencyCounts  // 各货币请求次数
     ) {}
 }
