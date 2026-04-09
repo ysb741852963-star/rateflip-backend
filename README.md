@@ -16,6 +16,7 @@ Exchange Rate API Service with Redis Cache
 | `/api/v1/rates` | GET | 获取汇率（自动缓存） |
 | `/api/v1/rates/refresh` | GET | 强制刷新汇率 |
 | `/api/v1/rates/status` | GET | 检查缓存状态 |
+| `/api/v1/rates/stats/daily` | GET | 获取每日统计（请求数、活跃货币对） |
 | `/api/v1/health` | GET | 健康检查 |
 
 ### 示例
@@ -32,6 +33,10 @@ curl http://localhost:8080/api/v1/rates/refresh?base=USD
 
 # 检查缓存状态
 curl http://localhost:8080/api/v1/rates/status?base=USD
+
+# 获取每日统计（不传date默认当天）
+curl http://localhost:8080/api/v1/rates/stats/daily
+curl "http://localhost:8080/api/v1/rates/stats/daily?date=20260409"
 ```
 
 ### 响应示例
@@ -125,11 +130,14 @@ src/main/java/com/rateflip/backend/
 
 ## 缓存策略
 
-- TTL: 1 小时
-- 缓存键: `rateflip:rates:{BASE_CURRENCY}`
+- **汇率缓存 TTL**: 1 小时
+- **汇率缓存键**: `rateflip:rates:USD`
 - 当缓存存在且未过期时直接返回
 - 缓存过期时自动从 open.er-api.com 获取新数据
 - 外部 API 失败时返回过期缓存（stale flag）
+- **统计缓存键**:
+  - `rateflip:stats:{date}:requests` — 日请求计数器（INCR）
+  - `rateflip:stats:{date}:currencies` — 活跃货币对 Set（SADD）
 
 ## 外部 API
 

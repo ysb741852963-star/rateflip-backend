@@ -3,6 +3,7 @@ package com.rateflip.backend.controller;
 import com.rateflip.backend.model.ApiResponse;
 import com.rateflip.backend.model.ExchangeRate;
 import com.rateflip.backend.service.ExchangeRateService;
+import com.rateflip.backend.service.ExchangeRateService.DailyStats;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Set;
 
 /**
  * 汇率 API 控制器
@@ -92,34 +95,20 @@ public class ExchangeRateController {
     }
 
     /**
-     * 获取API源状态（主API、备用API、熔断器状态）
-     * GET /api/v1/rates/source-status
+     * 获取每日统计（请求数、活跃货币对）
+     * GET /api/v1/rates/stats/daily?date=20260409
+     *
+     * @param date 日期（yyyyMMdd格式，不传默认当天）
+     * @return 每日统计数据
      */
-    @GetMapping("/rates/source-status")
-    public ResponseEntity<ApiResponse<ExchangeRateService.ApiSourceStatus>> getSourceStatus() {
-        logger.info("GET /api/v1/rates/source-status");
-        
+    @GetMapping("/rates/stats/daily")
+    public ResponseEntity<ApiResponse<DailyStats>> getDailyStats(
+            @RequestParam(required = false) String date) {
         try {
-            ExchangeRateService.ApiSourceStatus status = exchangeRateService.getApiSourceStatus();
-            return ResponseEntity.ok(ApiResponse.success(status));
+            DailyStats stats = exchangeRateService.getDailyStats(date);
+            return ResponseEntity.ok(ApiResponse.success(stats));
         } catch (Exception e) {
-            logger.error("获取API源状态出错: {}", e.getMessage());
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.fail(e.getMessage()));
-        }
-    }
-
-    /**
-     * 重置熔断器（用于紧急恢复）
-     * POST /api/v1/rates/circuit-breaker/reset
-     */
-    @PostMapping("/rates/circuit-breaker/reset")
-    public ResponseEntity<ApiResponse<String>> resetCircuitBreaker() {
-        try {
-            exchangeRateService.resetCircuitBreaker();
-            return ResponseEntity.ok(ApiResponse.success("熔断器已重置"));
-        } catch (Exception e) {
-            logger.error("重置熔断器出错: {}", e.getMessage());
+            logger.error("获取每日统计出错: {}", e.getMessage());
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.fail(e.getMessage()));
         }

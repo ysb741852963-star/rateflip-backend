@@ -5,11 +5,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.BoundSetOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -57,6 +61,13 @@ public class ExchangeRateService {
      * @return ExchangeRate 汇率对象（base始终为USD，但rates中的货币由请求决定）
      */
     public ExchangeRate getRates(String baseCurrency) {
+        // 记录统计
+        String date = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
+        redisTemplate.opsForValue().increment("rateflip:stats:" + date + ":requests");
+        @SuppressWarnings("unchecked")
+        BoundSetOperations<String, Object> setOps = (BoundSetOperations<String, Object>) redisTemplate.boundSetOps("rateflip:stats:" + date + ":currencies");
+        setOps.add(baseCurrency);
+
         String usdCacheKey = CACHE_KEY_PREFIX + "USD";
         String requestedCurrency = baseCurrency.toUpperCase();
         // 1. 尝试从 Redis 获取 USD 基准缓存
@@ -289,50 +300,60 @@ public class ExchangeRateService {
     }
 
     /**
-     * 获取熔断器状态信息
+     * 获取每日统计数据
+     * @param date 日期，格式为 yyyyMMdd，不传则默认当天
+     * @return 包含请求数和活跃货币对的统计对象
      */
-    public CircuitBreaker.CircuitStats getCircuitBreakerStats() {
-        return circuitBreaker.getStats();
-    }
+    public DailyStats getDailyStats(String date) {
+        String targetDate = (date != null && !date.isEmpty())
+                ? date
+                : LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
 
-    /**
-     * 手动重置熔断器
-     */
-    public void resetCircuitBreaker() {
-        circuitBreaker.reset();
-        logger.info("熔断器已手动重置");
-    }
+        String requestsKey = "rateflip:stats:" + targetDate + ":requests";
+        String currenciesKey = "rateflip:stats:" + targetDate + ":currencies";
 
-    /**
-     * 获取当前数据源状态
-     */
-    public ApiSourceStatus getApiSourceStatus() {
-        CircuitBreaker.CircuitStats stats = circuitBreaker.getStats();
-        boolean primaryAvailable = externalApiClient.isAvailable();
-        boolean fallbackAvailable = fallbackClient.isAvailable();
+        Long requestCount = 0L;
+        Set<String> activeCurrencies = null;
 
-        String currentSource;
-        if (stats.state() == CircuitState.OPEN) {
-            currentSource = fallbackAvailable ? "fallback" : "none";
-        } else {
-            currentSource = primaryAvailable ? "primary" : (fallbackAvailable ? "fallback" : "none");
+        try {
+            Object count = redisTemplate.opsForValue().get(requestsKey);
+            if (count instanceof Long) {
+                requestCount = (Long) count;
+            } else if (count instanceof Integer) {
+                requestCount = ((Integer) count).longValue();
+            } else if (count != null) {
+                requestCount = Long.parseLong(count.toString());
+            }
+        } catch (Exception e) {
+            logger.warn("读取请求统计失败: {}", e.getMessage());
         }
 
-        return new ApiSourceStatus(
-                currentSource,
-                primaryAvailable,
-                fallbackAvailable,
-                stats
-        );
+        try {
+            @SuppressWarnings("unchecked")
+            Set<Object> currencies = (Set<Object>) redisTemplate.opsForSet().members(currenciesKey);
+            if (currencies != null) {
+                activeCurrencies = new java.util.HashSet<>();
+                for (Object c : currencies) {
+                    if (c != null) {
+                        activeCurrencies.add(c.toString());
+                    }
+                }
+            } else {
+                activeCurrencies = Set.of();
+            }
+        } catch (Exception e) {
+            logger.warn("读取活跃货币统计失败: {}", e.getMessage());
+        }
+
+        return new DailyStats(targetDate, requestCount, activeCurrencies);
     }
 
     /**
-     * API源状态信息
+     * 每日统计数据
      */
-    public record ApiSourceStatus(
-            String currentSource,        // 当前使用的源: primary, fallback, none
-            boolean primaryAvailable,    // 主API是否可用
-            boolean fallbackAvailable,   // 备用API是否可用
-            CircuitBreaker.CircuitStats circuitStats  // 熔断器统计
+    public record DailyStats(
+            String date,
+            long requestCount,
+            Set<String> activeCurrencies
     ) {}
 }
